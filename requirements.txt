@@ -1,0 +1,14 @@
+# Core AI APIs
+google-genai>=1.0.0
+groq>=0.18.0
+fish-audio-sdk>=0.1.0
+requests>=2.31.0
+
+# Audio Recording & Playback
+sounddevice>=0.5.1
+soundfile>=0.14.0
+numpy>=1.26.0
+
+# Environment & Utilities
+python-dotenv>=1.0.1
+colorama>=0.4.6
