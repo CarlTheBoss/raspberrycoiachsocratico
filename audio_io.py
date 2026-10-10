@@ -6,12 +6,12 @@ import re
 import numpy as np
 import sounddevice as sd
 from typing import Optional, List, Callable, Any
-from config import SAMPLE_RATE, CHANNELS, SILENCE_DURATION
+from config import SAMPLE_RATE, CHANNELS, SILENCE_DURATION, ENERGY_THRESHOLD
 
-WAKE_WORD_PATTERN = re.compile(r'\b(?:[hH]?elena+|elenita)\b', re.IGNORECASE)
+WAKE_WORD_PATTERN = re.compile(r'\b(?:[hH]?elena+|elenita|lena|yalena|yelena|alena|olena)\b', re.IGNORECASE)
 
 def has_wake_word(text: str) -> bool:
-    """Verifica si el texto contiene 'Elena' o 'Helena' en cualquier parte de la oración"""
+    """Verifica si el texto contiene 'Elena' o sus variantes fonéticas comunes"""
     if not text:
         return False
     return bool(WAKE_WORD_PATTERN.search(text))
@@ -87,25 +87,53 @@ class AudioRecorder:
         sample_rate: int = SAMPLE_RATE,
         channels: int = CHANNELS,
         silence_duration: float = SILENCE_DURATION,
+        energy_threshold: float = ENERGY_THRESHOLD,
     ):
         self.sample_rate = sample_rate
         self.channels = channels
         self.silence_duration = silence_duration
-        self.ambient_noise_level = 0.008
+        self.energy_threshold = energy_threshold
+        self.ambient_noise_level = 0.005
 
     def _update_ambient_noise(self, energy: float):
         if energy > 0:
-            self.ambient_noise_level = 0.95 * self.ambient_noise_level + 0.05 * energy
+            # Limitar el nivel de ruido base para que nunca bloquee susurros o voz baja
+            self.ambient_noise_level = min(0.004, 0.95 * self.ambient_noise_level + 0.05 * energy)
 
-    def is_speech(self, chunk: np.ndarray) -> bool:
+    def play_listening_beep(self, frequency: float = 680.0, duration: float = 0.09):
+        """Genera y reproduce un tono 'pup' suave para indicar que el robot está listo para escuchar"""
+        try:
+            samples = int(self.sample_rate * duration)
+            t = np.linspace(0, duration, samples, False)
+            # Envolvente suave estilo campana (Hann) para que suene como un 'pup' limpio sin chasquido
+            envelope = 0.5 * (1 - np.cos(2 * np.pi * t / duration))
+            tone = np.sin(2 * np.pi * frequency * t) * envelope * 0.18
+            sd.play(tone.astype(np.float32), self.sample_rate)
+            sd.wait()
+        except Exception:
+            pass
+
+    def is_speech(self, chunk: np.ndarray, is_already_speaking: bool = False) -> bool:
+        """
+        Detección de voz por histéresis ultrasensible a susurros y voz baja:
+        - Detecta el inicio de voz con energía baja (0.0035).
+        - Si ya está hablando, mantiene la escucha activa con umbral mínimo (0.002) para capturar
+          susurros continuos, titubeos ('ammm', 'emmm') y pausas vocales.
+        """
         energy = float(np.sqrt(np.mean(chunk**2)))
-        dynamic_threshold = max(0.012, self.ambient_noise_level * 2.5)
 
-        if energy > dynamic_threshold:
-            return True
+        if is_already_speaking:
+            # Umbral de sostenimiento ultra sensible para susurros
+            hold_threshold = max(0.002, self.energy_threshold * 0.45)
+            return energy > hold_threshold
         else:
-            self._update_ambient_noise(energy)
-            return False
+            # Umbral de inicio para activar el turno con voz baja
+            start_threshold = max(self.energy_threshold, self.ambient_noise_level * 1.2)
+            if energy > start_threshold:
+                return True
+            else:
+                self._update_ambient_noise(energy)
+                return False
 
     def record_until_silence(
         self,
@@ -113,12 +141,13 @@ class AudioRecorder:
         max_duration: float = 30.0
     ) -> np.ndarray:
         """
-        Escucha al niño durante su turno hasta que termine de hablar (silencio).
+        Escucha al niño durante su turno. Permite pausas naturales de pensamiento
+        y murmullos ('ammm', 'emmm') sin cortar antes de tiempo.
         """
         chunk_duration = 0.05  # 50ms
         chunk_samples = int(self.sample_rate * chunk_duration)
         
-        pre_buffer = collections.deque(maxlen=8)
+        pre_buffer = collections.deque(maxlen=10)  # 500ms pre-buffer
         frames = list(initial_frames) if initial_frames else []
         is_speaking = bool(frames)
         silence_start_time = None
@@ -132,7 +161,7 @@ class AudioRecorder:
                 audio_chunk, _ = stream.read(chunk_samples)
                 audio_chunk = audio_chunk.flatten()
 
-                if self.is_speech(audio_chunk):
+                if self.is_speech(audio_chunk, is_already_speaking=is_speaking):
                     if not is_speaking:
                         print(" 🎙️ [Voz detectada... te escucho]")
                         is_speaking = True
@@ -155,7 +184,6 @@ class AudioRecorder:
         full_audio = np.concatenate(frames)
 
         # Recortar el exceso de silencio final dejando 0.35s de margen natural
-        # para que la transcripción sea inmediata y sin procesar aire vacío
         keep_silence = 0.35
         trim_seconds = max(0.0, self.silence_duration - keep_silence)
         trim_samples = int(self.sample_rate * trim_seconds)

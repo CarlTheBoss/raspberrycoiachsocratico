@@ -2,7 +2,7 @@ import os
 import json
 from typing import Dict, Any, Optional
 
-PC_TEORY_PATH = os.path.join(os.path.dirname(__file__), "PC_Teory.py")
+PC_THEORY_PATH = os.path.join(os.path.dirname(__file__), "pc_theory.json")
 
 # Mapeo pedagógico adaptado para niños (1.er y 2.° grado de primaria)
 KIDS_DIMENSION_ADAPTATIONS = {
@@ -59,7 +59,7 @@ KIDS_DIMENSION_ADAPTATIONS = {
 
 class CriticalThinkingManager:
     """Administrador del marco teórico de Pensamiento Crítico (APA Delphi + Marco ARS)"""
-    def __init__(self, file_path: str = PC_TEORY_PATH):
+    def __init__(self, file_path: str = PC_THEORY_PATH):
         self.file_path = file_path
         self.raw_data = self._load_data()
         self.dimensions_by_id = {d["dimension_id"]: d for d in self.raw_data.get("critical_thinking_dimensions", [])}
@@ -70,7 +70,7 @@ class CriticalThinkingManager:
                 with open(self.file_path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"⚠️ Error cargando PC_Teory.py: {e}")
+                print(f"⚠️ Error cargando pc_theory.json: {e}")
         return {}
 
     def get_dimension_info(self, dim_id: str) -> Optional[Dict[str, Any]]:

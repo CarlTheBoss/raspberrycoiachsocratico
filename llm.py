@@ -15,9 +15,14 @@ class SocraticCoach:
         self.client = genai.Client(api_key=GEMINI_API_KEY)
         self.memory = EpisodicMemory()
         self.curriculum = curriculum
+        self.curriculum.reset_session()
         
-        # Inyectar memoria episódica en las instrucciones del sistema
-        system_instructions = SOCRATIC_KIDS_PROMPT + "\n" + self.memory.get_memory_context()
+        # Inyectar el marco socrático, el temario completo oficial y la memoria episódica
+        system_instructions = (
+            SOCRATIC_KIDS_PROMPT + "\n\n" +
+            self.curriculum.get_full_curriculum_prompt() + "\n\n" +
+            self.memory.get_memory_context()
+        )
         
         self.chat = self.client.chats.create(
             model=GEMINI_MODEL,
@@ -27,26 +32,18 @@ class SocraticCoach:
             }
         )
 
-    def get_current_page(self) -> int:
-        return self.curriculum.get_session()["current_page"]
-
-    def set_page(self, page_number: int):
-        self.curriculum.set_current_page(page_number)
-
     def stream_sentences(self, user_text: str) -> Generator[str, None, None]:
         """
-        Envía el mensaje a Gemini y genera oraciones completas y válidas para TTS.
+        Envía el mensaje a Gemini y genera oraciones balanceadas para TTS sin microcortes ni demoras.
         """
         if not user_text or not user_text.strip():
             return
 
-        # Consultar la base de datos SQLite para saber la página exacta, contexto y pistas
-        curriculum_context = self.curriculum.get_agent_context(user_text)
-        augmented_prompt = f"{curriculum_context}\n[MENSAJE DEL NIÑO]: {user_text}"
+        augmented_prompt = f"[MENSAJE DEL NIÑO]: {user_text}"
 
         buffer = ""
         full_response = []
-        # Puntuadores que delimitan el fin de una oración
+        pending_chunk = ""
         sentence_end_pattern = re.compile(r'([.!?\n]+)')
 
         try:
@@ -62,18 +59,28 @@ class SocraticCoach:
                     match = sentence_end_pattern.search(buffer)
                     while match:
                         end_pos = match.end()
-                        sentence = buffer[:end_pos].strip()
+                        raw_sentence = buffer[:end_pos].strip()
                         buffer = buffer[end_pos:].strip()
 
-                        # Filtrar cadenas vacías o solo puntuación
-                        clean_sentence = re.sub(r'^[¿¡\s.!?]+$', '', sentence).strip()
-                        if len(clean_sentence) >= 3:
-                            yield sentence
+                        clean_sentence = re.sub(r'^[¿¡\s.!?]+$', '', raw_sentence).strip()
+                        if clean_sentence:
+                            if pending_chunk:
+                                candidate = f"{pending_chunk} {raw_sentence}"
+                            else:
+                                candidate = raw_sentence
+
+                            # Si el fragmento es muy breve (ej. "¡Hola!", "¡Así es!"), acumular con la siguiente frase
+                            # para evitar que el reproductor termine antes de sintetizar la siguiente frase
+                            if len(candidate) < 28 and not ("\n" in raw_sentence):
+                                pending_chunk = candidate
+                            else:
+                                yield candidate
+                                pending_chunk = ""
 
                         match = sentence_end_pattern.search(buffer)
 
-            # Enviar lo que haya quedado en el buffer
-            remaining = buffer.strip()
+            # Enviar lo que haya quedado acumulado
+            remaining = f"{pending_chunk} {buffer}".strip()
             clean_remaining = re.sub(r'^[¿¡\s.!?]+$', '', remaining).strip()
             if len(clean_remaining) >= 2:
                 yield remaining

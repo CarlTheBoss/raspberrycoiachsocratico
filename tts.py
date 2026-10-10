@@ -9,7 +9,7 @@ from typing import Tuple, Optional
 from config import FISH_AUDIO_API_KEY, FISH_TTS_MODEL, FISH_REFERENCE_ID
 
 class TextToSpeech:
-    """Sintetizador de voz hiper-realista usando Fish Audio S2.1 Pro"""
+    """Sintetizador de voz hiper-realista usando Fish Audio S2.1 Pro optimizado para baja latencia"""
     def __init__(self):
         if not FISH_AUDIO_API_KEY:
             raise ValueError("❌ FISH_AUDIO_API_KEY no está configurada en el archivo .env")
@@ -17,29 +17,36 @@ class TextToSpeech:
         self.model = FISH_TTS_MODEL
         self.reference_id = FISH_REFERENCE_ID
         self.endpoint = "https://api.fish.audio/v1/tts"
-
-    def generate_audio(self, text: str) -> Optional[Tuple[np.ndarray, int]]:
-        """Genera el audio con Fish Audio y retorna (audio_data, sample_rate)"""
-        if not text or not text.strip():
-            return None
-
-        headers = {
+        
+        # Sesión HTTP persistente con Keep-Alive para eliminar latencia de TLS en cada frase
+        self.session = requests.Session()
+        self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "model": self.model
         }
 
+    def generate_audio(self, text: str) -> Optional[Tuple[np.ndarray, int]]:
+        """Genera el audio con Fish Audio y retorna (audio_data, sample_rate) en streaming optimizado"""
+        if not text or not text.strip():
+            return None
+
         payload = {
-            "text": text,
+            "text": text.strip(),
             "format": "mp3",
-            "latency": "normal"
+            "latency": "balanced"
         }
 
         if self.reference_id:
             payload["reference_id"] = self.reference_id
 
         try:
-            response = requests.post(self.endpoint, headers=headers, json=payload, timeout=20)
+            response = self.session.post(
+                self.endpoint,
+                headers=self.headers,
+                json=payload,
+                timeout=15
+            )
             
             if response.status_code != 200:
                 print(f"⚠️ Error de Fish Audio TTS ({response.status_code}): {response.text}")

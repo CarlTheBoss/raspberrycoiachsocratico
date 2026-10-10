@@ -200,21 +200,21 @@ CURRICULUM_DATA = [
         "page_number": 7,
         "challenge_title": "Reto 1: Organizamos nuestros objetos",
         "topic": "Razonamiento deductivo ('Todos' vs 'Algunos') y metacognición",
-        "visual_context": "Paco dice: '¡Todas las figuras de tamaño grande son círculos!'. Lucía dice: '¡Todos los círculos son grandes!'. Se ven las 7 figuras (todas son círculos: 2 grandes, 1 mediano, 4 pequeños). Abajo ícono de foco 'Pensamos en lo que aprendimos'.",
+        "visual_context": "Paco dice: '¡Todas las figuras de tamaño grande son círculos!'. Lucía dice: '¡Todos los círculos son grandes!'. Se ven las 7 figuras (todas son círculos: 3 grandes, 4 pequeños). Abajo ícono de foco 'Pensamos en lo que aprendimos'.",
         "pedagogical_goal": "Evaluar la validez de enunciados universales ('todos') y reflexionar sobre el aprendizaje.",
         "exercises": [
             {
                 "exercise_order": 1,
                 "dimension_id": "DIM-07",
                 "question_text": "Paco dice: '¡Todas las figuras de tamaño grande son círculos!'. Lucía dice: '¡Todos los círculos son grandes!'. ¿Estás de acuerdo con lo que dicen Paco y Lucía? Explica.",
-                "expected_concept": "Paco tiene razón porque las 2 figuras grandes son círculos. Lucía no tiene razón porque no todos los círculos son grandes: también hay medianos y pequeños.",
+                "expected_concept": "Paco tiene razón porque las 3 figuras grandes son círculos. Lucía no tiene razón porque no todos los círculos son grandes: también hay pequeños.",
                 "socratic_hints": [
-                    "Mira solo las 2 figuras grandes: ¿qué forma tienen? ¿Paco dice la verdad?",
+                    "Mira solo las 3 figuras grandes: ¿qué forma tienen? ¿Paco dice la verdad?",
                     "Ahora revisa lo que dice Lucía: ¿todos los círculos de la mesa son grandotes, o también ves círculos chicos?",
                     "¿Quién tiene la razón de los dos?"
                 ],
                 "keywords": "de acuerdo con Paco y Lucía, figuras grandes círculos, todos los círculos son grandes, Paco tiene razón",
-                "solution_detail": "Paco tiene razón porque las figuras grandes son círculos. Lucía no, porque hay círculos pequeños y medianos."
+                "solution_detail": "Paco tiene razón porque las figuras grandes son círculos. Lucía no, porque hay círculos pequeños"
             },
             {
                 "exercise_order": 2,
@@ -234,7 +234,7 @@ CURRICULUM_DATA = [
         "page_number": 8,
         "challenge_title": "Reto 2: Rotulamos las cajas",
         "topic": "Reglas del juego de azar con moneda y tarjetas",
-        "visual_context": "Reglas del juego. Materiales: 20 tarjetas de cartulina con figuras (frutas o animales) y una moneda de 20 céntimos. Reglas: Si sale Cara -> toma 1 tarjeta. Si sale Sello -> toma 2 tarjetas iguales. Se juegan 5 rondas. Gana quien acumule más tarjetas.",
+        "visual_context": "¿Qué se necesita?. Materiales: 20 tarjetas de cartulina con figuras (frutas o animales) y una moneda de 20 céntimos. ¿Cómo se juega?: Si sale Cara -> toma 1 tarjeta. Si sale Sello -> toma 2 tarjetas iguales. Se juegan 5 rondas. Gana quien acumule más tarjetas.",
         "pedagogical_goal": "Comprender reglas de juego y condiciones de probabilidad/azar.",
         "exercises": [
             {
@@ -430,7 +430,7 @@ CURRICULUM_DATA = [
 ]
 
 class CurriculumDB:
-    """Administrador de la base de datos SQLite para el cuadernillo de ejercicios"""
+    """Administrador de la base de datos SQLite y del Temario estructurado para el Tutor Socrático"""
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
         self._init_db()
@@ -481,7 +481,7 @@ class CurriculumDB:
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS student_session (
                 session_id TEXT PRIMARY KEY,
-                current_page INTEGER DEFAULT 4,
+                current_page INTEGER DEFAULT NULL,
                 current_exercise_id INTEGER,
                 completed_exercises TEXT DEFAULT '[]',
                 notes TEXT DEFAULT '',
@@ -506,6 +506,21 @@ class CurriculumDB:
             conn.commit()
             self._init_db()
 
+    def reset_session(self, session_id: str = "default"):
+        """Reinicia el estado de la sesión para iniciar sin página predeterminada fija"""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+            INSERT INTO student_session (session_id, current_page, current_exercise_id, completed_exercises, last_interaction)
+            VALUES (?, NULL, NULL, '[]', CURRENT_TIMESTAMP)
+            ON CONFLICT(session_id) DO UPDATE SET
+                current_page = NULL,
+                current_exercise_id = NULL,
+                completed_exercises = '[]',
+                last_interaction = CURRENT_TIMESTAMP
+            """, (session_id,))
+            conn.commit()
+
     def _seed_data(self, conn: sqlite3.Connection):
         cursor = conn.cursor()
         for p in CURRICULUM_DATA:
@@ -529,14 +544,15 @@ class CurriculumDB:
                     ex.get("dimension_id", "DIM-01")
                 ))
         
-        # Crear sesión por defecto
         cursor.execute("""
         INSERT OR IGNORE INTO student_session (session_id, current_page, completed_exercises)
-        VALUES ('default', 4, '[]')
+        VALUES ('default', NULL, '[]')
         """)
         conn.commit()
 
-    def get_page(self, page_number: int) -> Optional[Dict[str, Any]]:
+    def get_page(self, page_number: Optional[int]) -> Optional[Dict[str, Any]]:
+        if not page_number:
+            return None
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM pages WHERE page_number = ?", (page_number,))
@@ -551,6 +567,18 @@ class CurriculumDB:
                 ex["socratic_hints"] = json.loads(ex["socratic_hints"])
             return page
 
+    def get_all_pages(self) -> List[Dict[str, Any]]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM pages ORDER BY page_number ASC")
+            pages = [dict(r) for r in cursor.fetchall()]
+            for p in pages:
+                cursor.execute("SELECT * FROM exercises WHERE page_number = ? ORDER BY exercise_order ASC", (p["page_number"],))
+                p["exercises"] = [dict(r) for r in cursor.fetchall()]
+                for ex in p["exercises"]:
+                    ex["socratic_hints"] = json.loads(ex["socratic_hints"])
+            return pages
+
     def get_session(self, session_id: str = "default") -> Dict[str, Any]:
         with self._get_connection() as conn:
             cursor = conn.cursor()
@@ -558,9 +586,9 @@ class CurriculumDB:
             row = cursor.fetchone()
             if row:
                 data = dict(row)
-                data["completed_exercises"] = json.loads(data["completed_exercises"])
+                data["completed_exercises"] = json.loads(data["completed_exercises"]) if data.get("completed_exercises") else []
                 return data
-            return {"session_id": session_id, "current_page": 4, "current_exercise_id": None, "completed_exercises": []}
+            return {"session_id": session_id, "current_page": None, "current_exercise_id": None, "completed_exercises": []}
 
     def set_current_page(self, page_number: int, session_id: str = "default"):
         if page_number < 1 or page_number > 12:
@@ -576,125 +604,43 @@ class CurriculumDB:
             """, (session_id, page_number))
             conn.commit()
 
-    def set_current_exercise(self, exercise_id: int, session_id: str = "default"):
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-            UPDATE student_session
-            SET current_exercise_id = ?, last_interaction = CURRENT_TIMESTAMP
-            WHERE session_id = ?
-            """, (exercise_id, session_id))
-            conn.commit()
-
-    def detect_page_from_text(self, text: str) -> Optional[int]:
-        """Detecta si el niño mencionó explícitamente un número de página u hoja"""
-        match = re.search(r'\b(?:p[aá]gina|hoja|pag|reto)\s*(\d+)\b', text, re.IGNORECASE)
-        if match:
-            num = int(match.group(1))
-            if 1 <= num <= 12:
-                return num
-        return None
-
-    def search_relevant_exercise(self, text: str, current_page: Optional[int] = None) -> Optional[Dict[str, Any]]:
-        """Busca el ejercicio más afín según las palabras clave dichas por el niño"""
-        clean_text = text.lower()
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM exercises")
-            all_exercises = [dict(r) for r in cursor.fetchall()]
-
-            best_match = None
-            max_score = 0
-
-            # Palabras comunes que no deben tener tanto peso
-            generic_words = {"lucía", "paco", "figuras", "tarjetas", "caja", "forma", "de acuerdo", "por qué"}
-
-            for ex in all_exercises:
-                keywords = [k.strip().lower() for k in ex["keywords"].split(",") if k.strip()]
-                score = 0
-                for kw in keywords:
-                    if kw in clean_text:
-                        # Si es una palabra muy específica (ej. "gallo", "moneda", "amarillo", "rojo", "ganó"), mayor peso
-                        if kw in generic_words:
-                            score += 1
-                        else:
-                            score += 3
-                
-                # Bonus si pertenece a la página actual en la que el niño está trabajando
-                if current_page and ex["page_number"] == current_page and score > 0:
-                    score += 1.5
-
-                if score > max_score:
-                    max_score = score
-                    best_match = ex
-
-            if best_match and max_score >= 2:
-                best_match["socratic_hints"] = json.loads(best_match["socratic_hints"])
-                return best_match
-
-            return None
-
-    def get_agent_context(self, user_text: str, session_id: str = "default") -> str:
+    def get_full_curriculum_prompt(self) -> str:
         """
-        Genera el bloque de contexto pedagógico exacto que se inyecta al LLM.
-        Detecta cambio de página, busca el ejercicio actual y proporciona pistas socráticas.
+        Genera el temario completo y estructurado del Cuadernillo para conocimiento
+        directo del LLM (cero regex, navegación por juicio y razonamiento del modelo).
         """
-        # 1. Detectar si el usuario cambió de página
-        detected_page = self.detect_page_from_text(user_text)
-        session = self.get_session(session_id)
-        current_page_num = session["current_page"]
-
-        if detected_page and detected_page != current_page_num:
-            current_page_num = detected_page
-            self.set_current_page(current_page_num, session_id)
-
-        # 2. Obtener datos de la página
-        page_data = self.get_page(current_page_num)
-        if not page_data:
-            return ""
-
-        # 3. Buscar si el texto apunta a un ejercicio específico
-        relevant_ex = self.search_relevant_exercise(user_text, current_page_num)
-        if relevant_ex:
-            self.set_current_exercise(relevant_ex["id"], session_id)
-            if relevant_ex["page_number"] != current_page_num:
-                current_page_num = relevant_ex["page_number"]
-                self.set_current_page(current_page_num, session_id)
-                page_data = self.get_page(current_page_num)
-
-        # 4. Formatear contexto enriquecido para el tutor socrático
         lines = [
-            f"\n📖 [CONTEXTO EXACTO DEL CUADERNILLO ESCOLAR - PÁGINA {current_page_num}]:",
-            f"- Reto: {page_data['challenge_title']} | Tema: {page_data['topic']}",
-            f"- Lo que el niño ve en la página: {page_data['visual_context']}"
+            "📚 TEMARIO Y CUADERNILLO ESCOLAR OFICIAL (Resolvemos problemas jugando 2):",
+            "El cuadernillo contiene 2 grandes Retos organizados por páginas. Utiliza tu propio juicio y entendimiento del contexto para identificar en qué reto, página o ejercicio está el estudiante según lo que te converse:\n"
         ]
 
-        if relevant_ex:
-            lines.append(f"\n🎯 [EJERCICIO EN EL QUE ESTÁ EL NIÑO AHORA MISMO]:")
-            lines.append(f"- Pregunta en el PDF: \"{relevant_ex['question_text']}\"")
-            lines.append(f"- Concepto/Respuesta correcta esperada: {relevant_ex['expected_concept']}")
-            hints = relevant_ex.get('socratic_hints', [])
-            if hints:
-                lines.append(f"- Pistas socráticas que debes formularle paso a paso (¡una sola pregunta corta a la vez!):")
-                for i, h in enumerate(hints, 1):
-                    lines.append(f"   {i}. {h}")
+        pages = self.get_all_pages()
+        for p in pages:
+            lines.append(f"--- [PÁGINA {p['page_number']}: {p['challenge_title']} | Tema: {p['topic']}] ---")
+            lines.append(f"• Lo que el niño ve en la página: {p['visual_context']}")
+            lines.append(f"• Objetivo pedagógico: {p['pedagogical_goal']}")
             
-            # Scaffolding de Pensamiento Crítico APA Delphi + ARS para este ejercicio
-            dim_id = relevant_ex.get("dimension_id", "DIM-01")
-            scaffolding = pc_theory.get_prompt_evaluation_scaffolding(dim_id)
-            lines.append(f"\n{scaffolding}")
-        else:
-            # Mostrar los ejercicios disponibles en esta página como referencia
-            if page_data.get("exercises"):
-                lines.append("\n📝 [EJERCICIOS DE ESTA PÁGINA]:")
-                for ex in page_data["exercises"]:
-                    lines.append(f"  * Pregunta {ex['exercise_order']} ({ex.get('dimension_id', 'DIM-01')}): \"{ex['question_text']}\" -> Respuesta: {ex['expected_concept']}")
-            # Scaffolding general de Pensamiento Crítico
-            scaffolding = pc_theory.get_prompt_evaluation_scaffolding(None)
-            lines.append(f"\n{scaffolding}")
+            if p.get("exercises"):
+                lines.append("• Ejercicios y preguntas de esta página:")
+                for ex in p["exercises"]:
+                    dim = ex.get("dimension_id", "DIM-01")
+                    hints_str = " | ".join(ex.get("socratic_hints", []))
+                    lines.append(f"   - Pregunta {ex['exercise_order']} ({dim}): \"{ex['question_text']}\"")
+                    lines.append(f"     * Concepto/Respuesta esperada: {ex['expected_concept']}")
+                    lines.append(f"     * Pistas socráticas sugeridas: {hints_str}")
+            lines.append("")
 
-        lines.append("⚠️ REGLA: Usa este contexto para saber con precisión qué está viendo el niño. Jamás le digas la respuesta final directamente; guíalo con preguntas cortas y amables.")
-        return "\n".join(lines) + "\n"
+        # Marco teórico general de Pensamiento Crítico
+        lines.append(pc_theory.get_prompt_evaluation_scaffolding(None))
+        return "\n".join(lines)
 
 # Instancia global disponible para importar
 curriculum = CurriculumDB()
+
+if __name__ == "__main__":
+    print("🔄 Reindexando y poblando la base de datos SQLite 'curriculum.db'...")
+    curriculum.reseed()
+    pages = curriculum.get_all_pages()
+    total_exercises = sum(len(p.get("exercises", [])) for p in pages)
+    print(f"✅ ¡Base de datos reindexada con éxito!")
+    print(f"📖 Total de páginas: {len(pages)} | 🎯 Total de ejercicios cargados: {total_exercises}\n")
