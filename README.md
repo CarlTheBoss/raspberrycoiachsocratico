@@ -10,9 +10,11 @@ Tobi es un robot tutor amigable y pedagógico diseñado para ayudar a niños con
 - 🎙️ **Oído Inteligente (STT):** Transcripción ultra-rápida en ~200ms con **Groq Whisper** (`whisper-large-v3-turbo`).
 - 🧠 **Cerebro Pedagógico (LLM):** **Google Gemini 2.5 Flash** con prompt socrático infantil estricto y motivador.
 - 🔊 **Voz Expresiva (TTS):** **Fish Audio S2.1 Pro** con voz consistente y natural en español.
-- 🛑 **Interrupción en Tiempo Real (*Barge-in*):** El niño puede hablar o interrumpir a Tobi mientras habla y el robot se calla al instante para escucharlo.
+- 🛎️ **Palabra de Activación ("Elena"):** Elena solo responde cuando el niño se dirige a ella diciendo *"Elena [pregunta]"*. Ignora ruidos de fondo, televisión o charlas de otras personas en la habitación.
+- 🛑 **Interrupción Fluida ("Elena, [mensaje]" o "Elena para"):** Si Elena está hablando y el niño la llama diciendo *"Elena..."*, el robot se detiene al instante y responde de inmediato a la nueva pregunta sin que el niño tenga que repetirse.
 - ⚡ **Streaming de Oraciones con Precarga (*Zero-Delay*):** Productor-consumidor en paralelo para eliminar pausas entre frases.
 - 💾 **Memoria Episódica Persistente:** Recuerda el nombre, gustos, temas practicados y dudas del niño entre sesiones en segundo plano.
+- 📚 **Base Curricular en SQLite (`curriculum.db`):** Sabe exactamente en qué página y ejercicio del cuadernillo escolar está el niño, qué figuras está viendo y le da pistas socráticas precisas sin revelar la solución.
 - 🔌 **Auto-arranque en Raspberry Pi:** Configurado como servicio `systemd` para encenderse solo al conectar a la corriente.
 
 ---
@@ -24,9 +26,10 @@ robot-coach-kids/
 ├── .env.example            # Plantilla de variables de entorno y API Keys
 ├── .gitignore              # Protección para no subir claves ni entornos
 ├── config.py               # Configuración de audio, modelos y claves
-├── prompt.py               # System Prompt del tutor socrático ("Tobi")
+├── curriculum_db.py        # Base de datos SQLite del cuadernillo (páginas 1-12) y búsqueda socrática
+├── prompt.py               # System Prompt del tutor socrático ("Elena")
 ├── stt.py                  # Reconocimiento de voz con Groq Whisper
-├── llm.py                  # Razonamiento socrático con Gemini + Streaming
+├── llm.py                  # Razonamiento socrático con Gemini + Streaming + SQLite
 ├── tts.py                  # Generación de voz con Fish Audio S2.1 Pro
 ├── memory.py               # Memoria episódica persistente y asíncrona
 ├── audio_io.py             # Grabación, VAD adaptativo y reproductor con Barge-in

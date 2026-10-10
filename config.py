@@ -18,7 +18,7 @@ FISH_REFERENCE_ID = os.getenv("FISH_REFERENCE_ID", "")
 # Audio Recording Config
 SAMPLE_RATE = 16000  # 16kHz
 CHANNELS = 1         # Mono
-SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "1.8"))
+SILENCE_DURATION = float(os.getenv("SILENCE_DURATION", "2.0"))
 ENERGY_THRESHOLD = float(os.getenv("ENERGY_THRESHOLD", "0.015"))
 INTERRUPT_THRESHOLD = float(os.getenv("INTERRUPT_THRESHOLD", "0.025"))
 

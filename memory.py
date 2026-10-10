@@ -42,13 +42,31 @@ class EpisodicMemory:
         except Exception as e:
             print(f"⚠️ Error guardando memoria: {e}")
 
+    def clear_memory(self):
+        """Limpia la memoria episódica reseteándola a los valores por defecto y guardando el archivo JSON"""
+        self.memory = {
+            "child_name": "",
+            "interests": [],
+            "topics_worked": [],
+            "strengths": [],
+            "areas_to_reinforce": [],
+            "last_session_summary": "",
+            "recent_milestones": []
+        }
+        try:
+            with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.memory, f, ensure_ascii=False, indent=2)
+            print("🧹 Memoria episódica (episodic_memory.json) limpiada.")
+        except Exception as e:
+            print(f"⚠️ Error limpiando memoria: {e}")
+
     def get_memory_context(self) -> str:
-        """Genera el contexto episódico para inyectar al prompt de Tobi"""
+        """Genera el contexto episódico para inyectar al prompt de Elena"""
         mem = self.memory
         if not any([mem.get("topics_worked"), mem.get("interests"), mem.get("last_session_summary")]):
             return ""
 
-        context_lines = ["\n📌 [MEMORIA EPISÓDICA DEL NIÑO]:"]
+        context_lines = ["\n📌 [MEMORIA EPISÓDICA DEL NIÑO - PENSAMIENTO CRÍTICO]:"]
         if mem.get("child_name"):
             context_lines.append(f"- Nombre del niño: {mem['child_name']}")
         if mem.get("interests"):
@@ -56,9 +74,9 @@ class EpisodicMemory:
         if mem.get("topics_worked"):
             context_lines.append(f"- Temas que ha practicado: {', '.join(mem['topics_worked'])}")
         if mem.get("strengths"):
-            context_lines.append(f"- Fortalezas: {', '.join(mem['strengths'])}")
+            context_lines.append(f"- Fortalezas (logros cognitivos): {', '.join(mem['strengths'])}")
         if mem.get("areas_to_reinforce"):
-            context_lines.append(f"- Áreas por reforzar: {', '.join(mem['areas_to_reinforce'])}")
+            context_lines.append(f"- Áreas por reforzar (dimensiones a guiar): {', '.join(mem['areas_to_reinforce'])}")
         if mem.get("last_session_summary"):
             context_lines.append(f"- Resumen de sesiones previas: {mem['last_session_summary']}")
         context_lines.append("Recuerda estos datos para personalizar tu trato y conectar con el niño con naturalidad.\n")
@@ -75,21 +93,22 @@ class EpisodicMemory:
             return
 
         extraction_prompt = f"""
-Analiza este breve intercambio entre un niño y su robot tutor Tobi:
+Analiza este breve intercambio entre un niño y su tutora robot Elena:
 Niño: "{user_text}"
-Tobi: "{robot_reply}"
+Elena: "{robot_reply}"
 
 Memoria actual:
 {json.dumps(self.memory, ensure_ascii=False)}
 
-Extrae en formato JSON únicamente los datos nuevos descubiertos (si no hay datos nuevos, mantén los existentes):
+Extrae en formato JSON únicamente los datos nuevos descubiertos (si no hay datos nuevos, mantén los existentes).
+En 'strengths' y 'areas_to_reinforce', si se evidencia, categoriza con las dimensiones de Pensamiento Crítico APA Delphi (Interpretación, Análisis, Evaluación, Inferencia, Explicación, Autorregulación):
 {{
   "child_name": "nombre si lo mencionó, o mantener actual",
-  "interests": ["lista de gustos o ejemplos que le gustan (e.g. fútbol, dinosaurios)"],
-  "topics_worked": ["materias o temas practicados (e.g. tabla del 9, suma de fracciones)"],
-  "strengths": ["lo que el niño entendió o logró"],
-  "areas_to_reinforce": ["donde tuvo dudas o errores"],
-  "last_session_summary": "1 oración que resuma lo practicado recientemente"
+  "interests": ["lista de gustos o temas de interés (e.g. dinosaurios, fútbol)"],
+  "topics_worked": ["desafíos o temas trabajados (e.g. inclusión de clases, probabilidad con moneda)"],
+  "strengths": ["logros cognitivos (e.g. Análisis: distinguió parte vs todo correctamente)"],
+  "areas_to_reinforce": ["dificultades observadas (e.g. Inferencia: necesita apoyo para deducir tarjetas sobrantes)"],
+  "last_session_summary": "1 oración breve que resuma lo practicado recientemente"
 }}
 Responde SOLO con el JSON válido.
 """

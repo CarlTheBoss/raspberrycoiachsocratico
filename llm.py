@@ -4,6 +4,7 @@ from google import genai
 from config import GEMINI_API_KEY, GEMINI_MODEL
 from prompt import SOCRATIC_KIDS_PROMPT
 from memory import EpisodicMemory
+from curriculum_db import curriculum
 
 class SocraticCoach:
     """Manejador de conversación con Gemini con Streaming de Oraciones y Memoria Episódica"""
@@ -13,6 +14,7 @@ class SocraticCoach:
         
         self.client = genai.Client(api_key=GEMINI_API_KEY)
         self.memory = EpisodicMemory()
+        self.curriculum = curriculum
         
         # Inyectar memoria episódica en las instrucciones del sistema
         system_instructions = SOCRATIC_KIDS_PROMPT + "\n" + self.memory.get_memory_context()
@@ -25,6 +27,12 @@ class SocraticCoach:
             }
         )
 
+    def get_current_page(self) -> int:
+        return self.curriculum.get_session()["current_page"]
+
+    def set_page(self, page_number: int):
+        self.curriculum.set_current_page(page_number)
+
     def stream_sentences(self, user_text: str) -> Generator[str, None, None]:
         """
         Envía el mensaje a Gemini y genera oraciones completas y válidas para TTS.
@@ -32,13 +40,17 @@ class SocraticCoach:
         if not user_text or not user_text.strip():
             return
 
+        # Consultar la base de datos SQLite para saber la página exacta, contexto y pistas
+        curriculum_context = self.curriculum.get_agent_context(user_text)
+        augmented_prompt = f"{curriculum_context}\n[MENSAJE DEL NIÑO]: {user_text}"
+
         buffer = ""
         full_response = []
         # Puntuadores que delimitan el fin de una oración
         sentence_end_pattern = re.compile(r'([.!?\n]+)')
 
         try:
-            response_stream = self.chat.send_message_stream(user_text)
+            response_stream = self.chat.send_message_stream(augmented_prompt)
             
             for chunk in response_stream:
                 if chunk.text:

@@ -4,7 +4,7 @@ import queue
 import threading
 from colorama import Fore, Style, init
 from config import GEMINI_API_KEY, FISH_AUDIO_API_KEY, GROQ_API_KEY, GPIO_BUTTON_PIN
-from audio_io import AudioRecorder
+from audio_io import AudioRecorder, has_wake_word, extract_message_after_wake_word, is_stop_command, is_exit_command
 from stt import SpeechToText
 from llm import SocraticCoach
 from tts import TextToSpeech
@@ -31,7 +31,7 @@ def setup_gpio_button():
 
 def main():
     print(f"\n{Fore.CYAN}==================================================================={Style.RESET_ALL}")
-    print(f"{Fore.CYAN} 🤖 ROBOT COACH SOCRÁTICO (Streaming Continuo sin Pausas) 🤖{Style.RESET_ALL}")
+    print(f"{Fore.CYAN} 🤖 ROBOT COACH SOCRÁTICO (Activación e Interrupción por 'Elena') 🤖{Style.RESET_ALL}")
     print(f"{Fore.CYAN}===================================================================\n{Style.RESET_ALL}")
 
     # Validar API Keys
@@ -58,20 +58,22 @@ def main():
     button_pin = setup_gpio_button()
 
     # Saludo de bienvenida
-    saludo_inicial = "¡Hola! Soy Tobi, tu compañero de tareas. ¿En qué problema o tarea quieres que trabajemos hoy?"
-    print(f"\n{Fore.MAGENTA}🤖 Tobi: {saludo_inicial}{Style.RESET_ALL}")
+    current_page = coach.get_current_page()
+    print(f"{Fore.CYAN}📖 Cuadernillo escolar cargado en SQLite: Página actual -> {current_page}{Style.RESET_ALL}")
+    saludo_inicial = f"¡Hola! Soy Elena, tu compañera de tareas. Para hablar conmigo, solo di mi nombre: Elena, y dime qué duda tienes."
+    print(f"\n{Fore.MAGENTA}🤖 Elena: {saludo_inicial}{Style.RESET_ALL}")
     tts.speak(saludo_inicial)
 
-    print(f"\n{Fore.GREEN}🟢 Tobi está listo y escuchando. (Presiona Ctrl+C para apagar){Style.RESET_ALL}\n")
+    print(f"\n{Fore.GREEN}🟢 Elena está lista. Solo responderá y se interrumpirá cuando digas 'Elena'. (Ctrl+C para apagar){Style.RESET_ALL}\n")
 
-    pending_audio = None
+    next_user_text = None
 
     try:
         while True:
-            # 1. Capturar voz del niño
-            if pending_audio is not None and len(pending_audio) > 0:
-                audio_data = pending_audio
-                pending_audio = None
+            # 1. Obtener mensaje del niño (capturado por interrupción previa o nuevo turno)
+            if next_user_text:
+                user_text = next_user_text
+                next_user_text = None
             else:
                 if button_pin is not None:
                     import RPi.GPIO as GPIO
@@ -80,23 +82,42 @@ def main():
                         time.sleep(0.05)
                     print(f"{Fore.GREEN}🟢 ¡Botón presionado! Te escucho...{Style.RESET_ALL}")
 
-                print(f"{Fore.BLUE}👂 Esperando que el niño hable...{Style.RESET_ALL}")
+                print(f"\n{Fore.BLUE}👂 Esperando que digas 'Elena...' (solo hablo si me llamas){Style.RESET_ALL}")
                 audio_data = recorder.record_until_silence()
 
-            if len(audio_data) == 0:
-                continue
+                if len(audio_data) == 0:
+                    continue
 
-            # 2. Transcripción instantánea con Groq Whisper
-            print(f"{Fore.YELLOW}⏳ Transcribiendo voz...{Style.RESET_ALL}")
-            user_text = stt.transcribe(audio_data)
+                # 2. Transcripción instantánea con Groq Whisper
+                print(f"{Fore.YELLOW}⏳ Transcribiendo voz...{Style.RESET_ALL}")
+                user_text = stt.transcribe(audio_data)
 
-            if not user_text:
-                continue
+                if not user_text:
+                    continue
+
+                # Verificar si llamó a Elena o dio orden de detención/salida
+                if not has_wake_word(user_text) and not is_stop_command(user_text) and not is_exit_command(user_text):
+                    print(f"{Fore.YELLOW}ℹ️ [Ignorado: \"{user_text}\" - No mencionaste 'Elena']{Style.RESET_ALL}")
+                    continue
 
             print(f"{Fore.CYAN}👦 Niño: {user_text}{Style.RESET_ALL}")
 
-            # 3. Pipeline de Precarga: Productor TTS en hilo paralelo + Reproductor continuo
-            print(f"{Fore.MAGENTA}🤖 Tobi: {Style.RESET_ALL}", end="", flush=True)
+            # Manejo directo si el niño pide salir / cerrar la sesión
+            if is_exit_command(user_text):
+                msg_despedida = "¡Hasta luego! Hiciste un gran trabajo hoy. ¡Adiós!"
+                print(f"{Fore.MAGENTA}🤖 Elena: {msg_despedida}{Style.RESET_ALL}")
+                tts.speak(msg_despedida)
+                break
+
+            # Manejo directo si el niño pide pausa en su turno
+            if is_stop_command(user_text):
+                msg_pausa = "¡Entendido! Hacemos una pausa. Cuando me necesites, solo llámame diciendo Elena."
+                print(f"{Fore.MAGENTA}🤖 Elena: {msg_pausa}{Style.RESET_ALL}")
+                tts.speak(msg_pausa)
+                continue
+
+            # 3. Turno de Elena: Streaming de Oraciones + Reproducción Continua
+            print(f"{Fore.MAGENTA}🤖 Elena: {Style.RESET_ALL}", end="", flush=True)
             
             audio_queue = queue.Queue(maxsize=15)
             stop_event = threading.Event()
@@ -120,17 +141,27 @@ def main():
             producer_thread = threading.Thread(target=tts_producer, daemon=True)
             producer_thread.start()
 
-            # Reproducir audio desde la cola sin pausas entre oraciones
-            pending_audio = recorder.play_audio_queue(audio_queue, stop_event)
+            # Reproducir audio de Elena. Si el niño interrumpe diciendo 'Elena [mensaje]',
+            # play_audio_queue captura y retorna esa nueva frase de inmediato
+            interrupted_text = recorder.play_audio_queue(
+                audio_queue=audio_queue,
+                stop_event=stop_event,
+                stt_transcribe_func=stt.transcribe
+            )
 
-            # Si terminó o fue interrumpido, asegurar que el hilo productor finalice
+            # Asegurar que el hilo productor finalice
             stop_event.set()
             print(f"\n{Style.RESET_ALL}" + "-" * 50)
 
+            if interrupted_text:
+                next_user_text = interrupted_text
+
     except KeyboardInterrupt:
-        print(f"\n{Fore.RED}🔴 Apagando a Tobi... ¡Hasta la próxima! 👋{Style.RESET_ALL}")
+        print(f"\n{Fore.RED}🔴 Apagando el robot... ¡Hasta la próxima! 👋{Style.RESET_ALL}")
         tts.speak("¡Hasta luego! Hiciste un gran trabajo hoy.")
     finally:
+        # Limpiar el archivo episodic_memory.json al cerrar
+        coach.memory.clear_memory()
         if button_pin is not None:
             try:
                 import RPi.GPIO as GPIO
