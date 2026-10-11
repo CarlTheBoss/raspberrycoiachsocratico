@@ -113,6 +113,23 @@ class AudioRecorder:
         except Exception:
             pass
 
+    def play_transcription_done_beep(self):
+        """Genera un sonido agradable de confirmación de fin de transcripción (dos tonos sutiles ascendentes)"""
+        try:
+            duration = 0.06
+            samples = int(self.sample_rate * duration)
+            t = np.linspace(0, duration, samples, False)
+            envelope = 0.5 * (1 - np.cos(2 * np.pi * t / duration))
+            # Primer tono (880 Hz - La) seguido de segundo tono más agudo (1174 Hz - Re)
+            tone1 = np.sin(2 * np.pi * 880.0 * t) * envelope * 0.15
+            pause = np.zeros(int(self.sample_rate * 0.02), dtype=np.float32)
+            tone2 = np.sin(2 * np.pi * 1174.0 * t) * envelope * 0.18
+            chime = np.concatenate([tone1, pause, tone2]).astype(np.float32)
+            sd.play(chime, self.sample_rate)
+            sd.wait()
+        except Exception:
+            pass
+
     def is_speech(self, chunk: np.ndarray, is_already_speaking: bool = False) -> bool:
         """
         Detección de voz por histéresis ultrasensible a susurros y voz baja:
@@ -123,12 +140,12 @@ class AudioRecorder:
         energy = float(np.sqrt(np.mean(chunk**2)))
 
         if is_already_speaking:
-            # Umbral de sostenimiento ultra sensible para susurros
-            hold_threshold = max(0.002, self.energy_threshold * 0.45)
+            # Umbral de sostenimiento: debe ser superior al ruido ambiente para detectar el silencio real
+            hold_threshold = max(self.ambient_noise_level * 1.3, self.energy_threshold * 0.8)
             return energy > hold_threshold
         else:
-            # Umbral de inicio para activar el turno con voz baja
-            start_threshold = max(self.energy_threshold, self.ambient_noise_level * 1.2)
+            # Umbral de inicio para activar el turno con voz normal
+            start_threshold = max(self.energy_threshold, self.ambient_noise_level * 1.4)
             if energy > start_threshold:
                 return True
             else:
@@ -138,11 +155,13 @@ class AudioRecorder:
     def record_until_silence(
         self,
         initial_frames: Optional[List[np.ndarray]] = None,
-        max_duration: float = 30.0
+        max_duration: float = 30.0,
+        button_is_released_func: Optional[Callable[[], bool]] = None
     ) -> np.ndarray:
         """
-        Escucha al niño durante su turno. Permite pausas naturales de pensamiento
-        y murmullos ('ammm', 'emmm') sin cortar antes de tiempo.
+        Escucha al niño durante su turno:
+        - Si hay botón arcade: graba mientras esté presionado y corta al instante al soltarlo.
+        - Si es manos libres: permite pausas naturales de pensamiento hasta detectar silencio.
         """
         chunk_duration = 0.05  # 50ms
         chunk_samples = int(self.sample_rate * chunk_duration)
@@ -152,6 +171,9 @@ class AudioRecorder:
         is_speaking = bool(frames)
         silence_start_time = None
         start_time = time.time()
+        record_start = start_time
+        # Período de gracia inicial (0.25s) para evitar que la misma pulsación o key-repeat de la tecla inicial corte la grabación
+        grace_period = 0.25
 
         with sd.InputStream(samplerate=self.sample_rate, channels=self.channels, dtype="float32") as stream:
             while True:
@@ -161,7 +183,19 @@ class AudioRecorder:
                 audio_chunk, _ = stream.read(chunk_samples)
                 audio_chunk = audio_chunk.flatten()
 
-                if self.is_speech(audio_chunk, is_already_speaking=is_speaking):
+                # Si se configuró botón arcade / tecla: al soltarlo/pulsarlo se detiene la grabación en el acto
+                elapsed = time.time() - record_start
+                if button_is_released_func and elapsed >= grace_period and button_is_released_func():
+                    print(" 🟢 [Grabación finalizada - Enviando tu voz a transcribir...]")
+                    frames.append(audio_chunk)
+                    is_speaking = True
+                    break
+
+                if button_is_released_func:
+                    # En modo botón: se graba continuo sin límite de silencio
+                    is_speaking = True
+                    frames.append(audio_chunk)
+                elif self.is_speech(audio_chunk, is_already_speaking=is_speaking):
                     if not is_speaking:
                         print(" 🎙️ [Voz detectada... te escucho]")
                         is_speaking = True
@@ -178,12 +212,16 @@ class AudioRecorder:
                     else:
                         pre_buffer.append(audio_chunk)
 
-        if not frames or not is_speaking:
+        if not frames:
             return np.array([], dtype=np.float32)
 
         full_audio = np.concatenate(frames)
 
-        # Recortar el exceso de silencio final dejando 0.35s de margen natural
+        # Si se usó botón o push-to-talk, no recortamos por silence_duration
+        if button_is_released_func:
+            return full_audio
+
+        # En modo manos libres: recortar el exceso de silencio final dejando 0.35s de margen natural
         keep_silence = 0.35
         trim_seconds = max(0.0, self.silence_duration - keep_silence)
         trim_samples = int(self.sample_rate * trim_seconds)
@@ -197,16 +235,36 @@ class AudioRecorder:
         self,
         audio_queue: queue.Queue,
         stop_event: threading.Event,
-        stt_transcribe_func: Optional[Callable[[np.ndarray], str]] = None
+        stt_transcribe_func: Optional[Callable[[np.ndarray], str]] = None,
+        button_check_func: Optional[Callable[[], bool]] = None
     ) -> Optional[str]:
         """
         Reproduce fluidamente el turno del robot desde la cola precargada.
-        - Solo se interrumpe si el usuario dice 'Elena ...' o una orden de detención ('para', 'alto').
-        - Retorna el texto del usuario si interrumpió diciendo 'Elena ...', o None si completó su turno.
+        - Se interrumpe al instante si se presiona el botón arcade físico (button_check_func).
+        - O si el usuario dice 'Elena ...' / orden de parada ('para', 'alto').
         """
         chunk_duration = 0.05  # 50ms
         listener_stop = threading.Event()
         interrupted_user_text: Optional[str] = None
+
+        def button_monitor():
+            """Monitorea el botón físico arcade: al presionarlo corta la voz del robot al instante"""
+            if not button_check_func:
+                return
+            # Período de gracia inicial (350ms) para evitar que teclas/rebotes del final de la grabación
+            # corten el arranque de la voz de Elena.
+            time.sleep(0.35)
+            while not stop_event.is_set() and not listener_stop.is_set():
+                if button_check_func():
+                    print(f"\n 🛑 [¡Botón presionado! Cortando la voz del robot inmediatamente...]")
+                    stop_event.set()
+                    while not audio_queue.empty():
+                        try:
+                            audio_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                    break
+                time.sleep(0.04)
 
         def stop_word_listener():
             """Monitorea el micrófono en segundo plano buscando ÚNICAMENTE 'Elena' o 'Para'"""
@@ -265,6 +323,12 @@ class AudioRecorder:
             except Exception:
                 # Si el hardware de audio no permite dúplex simultáneo, continúa en modo por turnos
                 pass
+
+        # Iniciar hilo de corte por botón físico si está disponible
+        button_thread = None
+        if button_check_func:
+            button_thread = threading.Thread(target=button_monitor, daemon=True)
+            button_thread.start()
 
         # Iniciar hilo de escucha exclusivo para la palabra 'Elena' o 'para'
         listener_thread = None

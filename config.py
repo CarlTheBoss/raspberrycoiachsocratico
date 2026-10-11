@@ -12,6 +12,7 @@ STT_PROVIDER = os.getenv("STT_PROVIDER", "deepgram")
 
 # Modelo de LLM
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_TRANSCRIBE_MODEL = os.getenv("GEMINI_TRANSCRIBE_MODEL", "gemini-3.5-transcribe")
 
 # Fish Audio TTS Config
 FISH_TTS_MODEL = os.getenv("FISH_TTS_MODEL", "s2.1-pro-free")
@@ -26,3 +27,6 @@ INTERRUPT_THRESHOLD = float(os.getenv("INTERRUPT_THRESHOLD", "0.025"))
 
 # GPIO Pin para botón (opcional en Raspberry Pi)
 GPIO_BUTTON_PIN = os.getenv("GPIO_BUTTON_PIN", "")
+
+# Simular botón arcade con tecla en PC (ej: 'space' o 'enter', deja vacío para desactivar)
+SIMULATE_BUTTON_KEY = os.getenv("SIMULATE_BUTTON_KEY", "space")
