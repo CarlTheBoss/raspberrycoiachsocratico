@@ -197,12 +197,12 @@ def main():
         except Exception:
             pass
 
-    # Listo para escuchar: emite un sonido (pong/pup) sin mensaje hablado predefinido
+    # Al encender, mandamos un 'Hola' interno para que Elena genere su saludo natural
     print(f"{Fore.CYAN}📖 Cuadernillo escolar cargado en SQLite: Búsqueda dinámica por intención activada 🧠{Style.RESET_ALL}")
     recorder.play_listening_beep()
 
     conversation_active = True
-    next_user_text = None
+    next_user_text = "Hola"
     idle_silence_count = 0
 
     try:
