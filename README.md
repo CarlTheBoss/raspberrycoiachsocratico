@@ -1,17 +1,17 @@
-# 🤖 Robot Coach Socrático para Niños ("Tobi") 🚀
-> **Asistente de voz interactivo para Raspberry Pi con Google Gemini, Fish Audio S2.1 Pro TTS, Groq Whisper STT y Memoria Episódica.**
+# 🤖 Robot Coach Socrático para Niños ("Elena") 🚀
+> **Asistente de voz interactivo con Google Gemini, Fish Audio S2.1 Pro TTS, Deepgram Nova-3 / Groq Whisper STT, SQLite Curricular y Push-to-Talk.**
 
-Tobi es un robot tutor amigable y pedagógico diseñado para ayudar a niños con sus tareas escolares usando el **método socrático**: jamás da la respuesta directa, sino que guía al niño con preguntas amigables, pistas y ejemplos cotidianos.
+Elena es una robot tutora amigable y pedagógica diseñada para ayudar a niños con sus tareas escolares usando el **método socrático**: jamás da la respuesta directa, sino que guía al niño con preguntas amigables, pistas y ejemplos cotidianos.
 
 ---
 
 ## ✨ Características Principales
 
-- 🎙️ **Oído Inteligente (STT):** Transcripción ultra-rápida en ~200ms con **Groq Whisper** (`whisper-large-v3-turbo`).
-- 🧠 **Cerebro Pedagógico (LLM):** **Google Gemini 2.5 Flash** con prompt socrático infantil estricto y motivador.
-- 🔊 **Voz Expresiva (TTS):** **Fish Audio S2.1 Pro** con voz consistente y natural en español.
-- 🛎️ **Palabra de Activación ("Elena"):** Elena solo responde cuando el niño se dirige a ella diciendo *"Elena [pregunta]"*. Ignora ruidos de fondo, televisión o charlas de otras personas en la habitación.
-- 🛑 **Interrupción Fluida ("Elena, [mensaje]" o "Elena para"):** Si Elena está hablando y el niño la llama diciendo *"Elena..."*, el robot se detiene al instante y responde de inmediato a la nueva pregunta sin que el niño tenga que repetirse.
+- 🎙️ **Oído Inteligente Multi-Proveedor (STT):** Transcripción ultra-rápida con **Deepgram Nova-3** (~150ms), **Gemini Transcribe** (`gemini-3.5-transcribe`), y fallback automático con **Groq Whisper** (`whisper-large-v3-turbo`).
+- 🧠 **Cerebro Pedagógico (LLM):** **Google Gemini 2.5 Flash** con prompt socrático infantil estricto, interactivo y motivador.
+- 🔊 **Voz Expresiva (TTS):** **Fish Audio S2.1 Pro** con voz natural, cálida y consistente en español.
+- 🔘 **Push-to-Talk Físico y en PC:** Soporta botón arcade físico en Raspberry Pi (GPIO) o modo Push-to-Talk en PC manteniendo presionado `[ESPACIO]`.
+- 🛑 **Interrupción Fluida (Barge-in):** Si Elena está hablando y el niño pulsa el botón o dice *"Elena..."*, el robot se detiene al instante y escucha de inmediato.
 - ⚡ **Streaming de Oraciones con Precarga (*Zero-Delay*):** Productor-consumidor en paralelo para eliminar pausas entre frases.
 - 💾 **Memoria Episódica Persistente:** Recuerda el nombre, gustos, temas practicados y dudas del niño entre sesiones en segundo plano.
 - 📚 **Base Curricular en SQLite (`curriculum.db`):** Sabe exactamente en qué página y ejercicio del cuadernillo escolar está el niño, qué figuras está viendo y le da pistas socráticas precisas sin revelar la solución.
@@ -26,13 +26,14 @@ robot-coach-kids/
 ├── .env.example            # Plantilla de variables de entorno y API Keys
 ├── .gitignore              # Protección para no subir claves ni entornos
 ├── config.py               # Configuración de audio, modelos y claves
-├── curriculum_db.py        # Base de datos SQLite del cuadernillo (páginas 1-12) y búsqueda socrática
+├── curriculum.db           # Base de datos SQLite del cuadernillo escolar
+├── curriculum_db.py        # Gestor de búsqueda contextual y socrática del cuadernillo
 ├── prompt.py               # System Prompt del tutor socrático ("Elena")
-├── stt.py                  # Reconocimiento de voz con Groq Whisper
+├── stt.py                  # Reconocimiento de voz Multi-STT (Deepgram, Gemini, Groq)
 ├── llm.py                  # Razonamiento socrático con Gemini + Streaming + SQLite
 ├── tts.py                  # Generación de voz con Fish Audio S2.1 Pro
 ├── memory.py               # Memoria episódica persistente y asíncrona
-├── audio_io.py             # Grabación, VAD adaptativo y reproductor con Barge-in
+├── audio_io.py             # Grabación, VAD, Push-to-Talk y reproductor con Barge-in
 ├── main.py                 # Orquestador del bucle conversacional
 └── requirements.txt        # Dependencias de Python
 ```
