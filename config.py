@@ -30,3 +30,7 @@ GPIO_BUTTON_PIN = os.getenv("GPIO_BUTTON_PIN", "")
 
 # Simular botón arcade con tecla en PC (ej: 'space' o 'enter', deja vacío para desactivar)
 SIMULATE_BUTTON_KEY = os.getenv("SIMULATE_BUTTON_KEY", "space")
+
+# Interrupción de voz en segundo plano mientras el robot habla (barge-in por voz)
+# En Raspberry Pi / ALSA sin hardware full-duplex de estudio, desactivar (false) para evitar conflictos de audio/segfaults
+ENABLE_VOICE_INTERRUPT = os.getenv("ENABLE_VOICE_INTERRUPT", "true").lower() in ("true", "1", "yes")

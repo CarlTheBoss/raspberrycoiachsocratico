@@ -1,3 +1,4 @@
+import os
 import sys
 import time
 import queue
@@ -100,22 +101,33 @@ def main():
     # Configurar comprobación de estado físico de la tecla en PC (X11 / Terminal)
     x11_display = None
     space_keycode = 65
-    try:
-        import ctypes
-        from ctypes import util
-        lib_x11 = ctypes.cdll.LoadLibrary(util.find_library("X11"))
-        if lib_x11:
-            x11_display = lib_x11.XOpenDisplay(None)
-            if x11_display:
-                space_keycode = lib_x11.XKeysymToKeycode(x11_display, 0x0020)
-    except Exception:
-        x11_display = None
+    lib_x11 = None
+    # Solo inicializar X11 si hay pantalla gráfica conectada y no estamos en Raspberry Pi con botón físico
+    if SIMULATE_BUTTON_KEY and button_pin is None and os.getenv("DISPLAY"):
+        try:
+            import ctypes
+            from ctypes import util
+            x11_path = util.find_library("X11")
+            if x11_path:
+                lib_x11 = ctypes.cdll.LoadLibrary(x11_path)
+                if lib_x11:
+                    lib_x11.XOpenDisplay.restype = ctypes.c_void_p
+                    lib_x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+                    x11_display = lib_x11.XOpenDisplay(None)
+                    if x11_display:
+                        lib_x11.XKeysymToKeycode.restype = ctypes.c_ubyte
+                        lib_x11.XKeysymToKeycode.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+                        space_keycode = lib_x11.XKeysymToKeycode(x11_display, 0x0020)
+        except Exception:
+            x11_display = None
+            lib_x11 = None
 
     def is_space_key_physically_down() -> bool:
         """Verifica en tiempo real si la tecla espacio está físicamente abajo (presionada)"""
-        if x11_display is not None:
+        if x11_display and lib_x11:
             try:
                 keys_return = (ctypes.c_char * 32)()
+                lib_x11.XQueryKeymap.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
                 lib_x11.XQueryKeymap(x11_display, keys_return)
                 byte_idx = space_keycode // 8
                 bit_idx = space_keycode % 8

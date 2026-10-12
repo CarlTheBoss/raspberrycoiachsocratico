@@ -6,7 +6,7 @@ import re
 import numpy as np
 import sounddevice as sd
 from typing import Optional, List, Callable, Any
-from config import SAMPLE_RATE, CHANNELS, SILENCE_DURATION, ENERGY_THRESHOLD
+from config import SAMPLE_RATE, CHANNELS, SILENCE_DURATION, ENERGY_THRESHOLD, ENABLE_VOICE_INTERRUPT
 
 WAKE_WORD_PATTERN = re.compile(r'\b(?:[hH]?elena+|elenita|lena|yalena|yelena|alena|olena)\b', re.IGNORECASE)
 
@@ -332,7 +332,7 @@ class AudioRecorder:
 
         # Iniciar hilo de escucha exclusivo para la palabra 'Elena' o 'para'
         listener_thread = None
-        if stt_transcribe_func:
+        if ENABLE_VOICE_INTERRUPT and stt_transcribe_func:
             listener_thread = threading.Thread(target=stop_word_listener, daemon=True)
             listener_thread.start()
 
