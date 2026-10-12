@@ -148,17 +148,20 @@ class AudioRecorder:
 
     def is_speech(self, chunk: np.ndarray, is_already_speaking: bool = False) -> bool:
         """
-        Detección de voz con histéresis y umbral adaptativo al ruido ambiente:
-        - Si ya está hablando, umbral de sostenimiento más bajo para permitir pausas y susurros.
-        - Si está en silencio, umbral adaptado al ruido medido para evitar disparos por estática de USB.
+        Detección estricta de voz nítida frente a ruidos/murmullos:
+        - Inicio: requiere energía clara (>= 0.012 RMS) superior a murmullos y suspiros.
+        - Sostenimiento: umbral firme para que murmullos o respiraciones no reseteen
+          indebidamente el contador de silencio al finalizar el turno.
         """
         energy = float(np.sqrt(np.mean(chunk**2)))
 
         if is_already_speaking:
-            hold_threshold = max(self.ambient_noise_level * 1.25, self.energy_threshold * 0.75)
+            # Sostenimiento de voz nítida (murmullos leves por debajo no reinician silencio)
+            hold_threshold = max(self.ambient_noise_level * 1.5, self.energy_threshold * 1.0, 0.009)
             return energy > hold_threshold
         else:
-            start_threshold = max(self.energy_threshold, self.ambient_noise_level * 1.55)
+            # Inicio: requiere voz nítida y audible (filtrando murmullos débiles)
+            start_threshold = max(self.energy_threshold * 1.5, self.ambient_noise_level * 2.2, 0.012)
             if energy > start_threshold:
                 return True
             else:
@@ -174,8 +177,8 @@ class AudioRecorder:
         """
         Escucha al niño durante su turno:
         - Si hay botón arcade: graba mientras esté presionado y corta al soltarlo.
-        - Si es manos libres: requiere confirmación consecutiva de voz (anti-ruido ALSA/clics)
-          y mide el silencio posterior para enviar únicamente intervenciones reales.
+        - Si es manos libres: requiere confirmación consecutiva de voz nítida
+          y decide el contador final de silencio sin reiniciarse por murmullos.
         """
         chunk_duration = 0.05  # 50ms
         chunk_samples = int(self.sample_rate * chunk_duration)
@@ -189,8 +192,8 @@ class AudioRecorder:
         grace_period = 0.25
 
         consecutive_speech = 0
-        min_consecutive_to_start = 3   # Requiere al menos ~150ms continuos de voz para confirmar inicio
-        speech_chunks_count = 0        # Cuenta de chunks de voz real para filtrar ruidos fugaces
+        min_consecutive_to_start = 3   # Requiere al menos ~150ms continuos de voz nítida
+        speech_chunks_count = 0        # Cuenta de chunks de voz nítida real
 
         with sd.InputStream(samplerate=self.sample_rate, channels=self.channels, dtype="float32") as stream:
             # Descartar primeros 100ms de calentamiento del stream para purgar 'pops' de inicio de ALSA/USB
@@ -236,9 +239,11 @@ class AudioRecorder:
                     if self.is_speech(audio_chunk, is_already_speaking=True):
                         speech_chunks_count += 1
                         frames.append(audio_chunk)
+                        # Solo resetea el contador si habló con voz nítida sostenida
                         silence_start_time = None
                     else:
                         frames.append(audio_chunk)
+                        # Respiraciones o murmullos leves no resetean el contador de silencio
                         if silence_start_time is None:
                             silence_start_time = time.time()
                         elif (time.time() - silence_start_time) >= self.silence_duration:
@@ -247,8 +252,8 @@ class AudioRecorder:
         if not frames:
             return np.array([], dtype=np.float32)
 
-        # En manos libres: si la voz detectada fue menor a ~200ms totales (ej. un golpe o chasquido), descartar
-        if not button_is_released_func and speech_chunks_count < 4:
+        # En manos libres: si la voz detectada fue menor a ~250ms de voz nítida (5 chunks), descartar
+        if not button_is_released_func and speech_chunks_count < 5:
             return np.array([], dtype=np.float32)
 
         full_audio = np.concatenate(frames)
@@ -256,6 +261,12 @@ class AudioRecorder:
         # Si se usó botón o push-to-talk, no recortamos por silence_duration
         if button_is_released_func:
             return full_audio
+
+        # Filtro final de nitidez: verificar que el volumen pico corresponda a voz clara (>= 0.12)
+        # Esto descarta murmullos, susurros débiles o chasquidos antes de enviarlos a transcribir
+        peak_volume = float(np.max(np.abs(full_audio))) if len(full_audio) > 0 else 0.0
+        if peak_volume < 0.12:
+            return np.array([], dtype=np.float32)
 
         # En modo manos libres: recortar el exceso de silencio final dejando 0.35s de margen natural
         keep_silence = 0.35
@@ -303,59 +314,75 @@ class AudioRecorder:
                 time.sleep(0.04)
 
         def stop_word_listener():
-            """Monitorea el micrófono en segundo plano buscando ÚNICAMENTE 'Elena' o 'Para'"""
+            """Monitorea el micrófono en segundo plano para permitir interrupción cuando el usuario hable con voz nítida"""
             nonlocal interrupted_user_text
             if not stt_transcribe_func:
                 return
 
             chunk_samples = int(self.sample_rate * chunk_duration)
-            high_threshold = max(0.035, self.ambient_noise_level * 4.5)
+            # Para interrumpir por encima del parlante, requiere energía clara y firme
+            high_threshold = max(0.040, self.ambient_noise_level * 5.0)
 
             try:
                 with sd.InputStream(samplerate=self.sample_rate, channels=self.channels, dtype="float32") as in_stream:
+                    try:
+                        for _ in range(2):
+                            in_stream.read(chunk_samples)
+                    except Exception:
+                        pass
+
+                    consecutive_high = 0
                     while not stop_event.is_set() and not listener_stop.is_set():
                         mic_chunk, _ = in_stream.read(chunk_samples)
                         mic_chunk = mic_chunk.flatten()
                         energy = float(np.sqrt(np.mean(mic_chunk**2)))
 
-                        # Si alguien habla con energía suficiente por encima del parlante
+                        # Si alguien habla con energía nítida por encima del parlante (no murmullos)
                         if energy > high_threshold:
-                            captured = [mic_chunk]
-                            silence_count = 0
-                            # Capturar hasta 3 segundos para permitir 'Elena, [lo que le digo]'
-                            for _ in range(60):
-                                if stop_event.is_set() or listener_stop.is_set():
-                                    break
-                                next_c, _ = in_stream.read(chunk_samples)
-                                next_c = next_c.flatten()
-                                captured.append(next_c)
-                                chk_e = float(np.sqrt(np.mean(next_c**2)))
-                                if chk_e < high_threshold:
-                                    silence_count += 1
-                                    if silence_count >= 8:  # 400ms de silencio tras la frase
+                            consecutive_high += 1
+                            if consecutive_high >= 2:  # Al menos 100ms sostenidos para no cortar por clics
+                                captured = [mic_chunk]
+                                silence_count = 0
+                                # Capturar hasta 3.5 segundos de la frase de interrupción
+                                for _ in range(70):
+                                    if stop_event.is_set() or listener_stop.is_set():
                                         break
-                                else:
-                                    silence_count = 0
-
-                            if len(captured) >= 6:  # Al menos 300ms de voz
-                                audio_arr = np.concatenate(captured)
-                                try:
-                                    transcription = stt_transcribe_func(audio_arr)
-                                    if transcription:
-                                        # Interrumpir si mencionó 'Elena' o una orden de parada ('para', 'stop')
-                                        if has_wake_word(transcription) or is_stop_command(transcription):
-                                            print(f"\n 🛑 [¡Llamaste a Elena: '{transcription}'! Interrumpiendo voz...]")
-                                            interrupted_user_text = transcription
-                                            stop_event.set()
-                                            # Vaciar la cola para detener la reproducción de inmediato
-                                            while not audio_queue.empty():
-                                                try:
-                                                    audio_queue.get_nowait()
-                                                except queue.Empty:
-                                                    break
+                                    next_c, _ = in_stream.read(chunk_samples)
+                                    next_c = next_c.flatten()
+                                    captured.append(next_c)
+                                    chk_e = float(np.sqrt(np.mean(next_c**2)))
+                                    if chk_e < high_threshold * 0.75:
+                                        silence_count += 1
+                                        if silence_count >= 8:  # 400ms de silencio tras la frase
                                             break
-                                except Exception:
-                                    pass
+                                    else:
+                                        silence_count = 0
+
+                                consecutive_high = 0
+                                if len(captured) >= 7:  # Al menos 350ms de audio capturado
+                                    audio_arr = np.concatenate(captured)
+                                    peak_val = float(np.max(np.abs(audio_arr)))
+                                    # Exigir volumen pico nítido (>= 0.14) para descartar murmullos o ruidos del parlante
+                                    if peak_val >= 0.14:
+                                        try:
+                                            transcription = stt_transcribe_func(audio_arr)
+                                            if transcription and len(transcription.strip()) >= 2:
+                                                clean_text = extract_message_after_wake_word(transcription)
+                                                final_text = clean_text if clean_text else transcription.strip()
+                                                print(f"\n 🛑 [¡Interrupción por voz detectada: \"{final_text}\"! Deteniendo al robot...]")
+                                                interrupted_user_text = final_text
+                                                stop_event.set()
+                                                # Vaciar la cola para detener la reproducción de inmediato
+                                                while not audio_queue.empty():
+                                                    try:
+                                                        audio_queue.get_nowait()
+                                                    except queue.Empty:
+                                                        break
+                                                break
+                                        except Exception:
+                                            pass
+                        else:
+                            consecutive_high = 0
             except Exception:
                 # Si el hardware de audio no permite dúplex simultáneo, continúa en modo por turnos
                 pass
