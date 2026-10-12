@@ -40,6 +40,7 @@ def speak_interruptible(
         button_check_func=button_check_func
     )
     stop.set()
+    time.sleep(0.15)  # Breve margen para disipar eco del parlante antes de abrir micro
     return interrupted
 
 def setup_gpio_button():
@@ -62,7 +63,7 @@ def setup_gpio_button():
 
 def main():
     print(f"\n{Fore.CYAN}==================================================================={Style.RESET_ALL}")
-    print(f"{Fore.CYAN} 🤖 ROBOT COACH SOCRÁTICO (Activación e Interrupción por 'Elena') 🤖{Style.RESET_ALL}")
+    print(f"{Fore.CYAN} 🤖 ROBOT COACH SOCRÁTICO (Conversación Fluida Directa) 🤖{Style.RESET_ALL}")
     print(f"{Fore.CYAN}===================================================================\n{Style.RESET_ALL}")
 
     # Validar API Keys
@@ -87,6 +88,7 @@ def main():
     coach = SocraticCoach()
     tts = TextToSpeech()
     button_pin = setup_gpio_button()
+    recorder.calibrate_ambient_noise()
 
     # Simulación de botón por teclado (Terminal Linux) o GPIO real
     def flush_stdin():
@@ -245,11 +247,9 @@ def main():
                         print(f"{Fore.GREEN}🟢 ¡Botón presionado! Te escucho (suéltalo al terminar)...{Style.RESET_ALL}")
                     else:
                         print(f"{Fore.GREEN}🎙️ ¡Grabando! Habla ahora... (Suelta [ESPACIO] al terminar para enviar){Style.RESET_ALL}")
-                elif conversation_active:
-                    recorder.play_listening_beep()
-                    print(f"\n{Fore.BLUE}🔔 [pup] Te escucho... (o di 'Elena [mensaje]' / di 'para'){Style.RESET_ALL}")
                 else:
-                    print(f"\n{Fore.BLUE}👂 En espera... Di 'Elena' para hablar conmigo:{Style.RESET_ALL}")
+                    recorder.play_listening_beep()
+                    print(f"\n{Fore.BLUE}🔔 [pup] Te escucho...{Style.RESET_ALL}")
 
                 # Grabar audio
                 recording_start_ts = time.time()
@@ -260,22 +260,7 @@ def main():
 
                 # Si no hubo audio o no se detectó voz
                 if len(audio_data) == 0:
-                    if conversation_active:
-                        idle_silence_count += 1
-                        if idle_silence_count == 1:
-                            reprompt = "¡Hola! No logré escucharte bien. ¿Podrías repetirme lo que dijiste o necesitas una pista?"
-                            interrupted = speak_interruptible(reprompt, tts, recorder, stt)
-                            if interrupted:
-                                next_user_text = interrupted
-                            continue
-                        elif idle_silence_count >= 2:
-                            standby_msg = "Estaré aquí lista. Cuando quieras continuar, solo llámame diciendo Elena."
-                            interrupted = speak_interruptible(standby_msg, tts, recorder, stt)
-                            conversation_active = False
-                            idle_silence_count = 0
-                            if interrupted:
-                                next_user_text = interrupted
-                            continue
+                    time.sleep(0.2)
                     continue
 
                 # 2. Transcripción instantánea con Groq Whisper / Deepgram
@@ -289,36 +274,14 @@ def main():
                     print(f"{Fore.GREEN}🗣️ Niño dijo: \"{user_text}\"{Style.RESET_ALL}")
                 else:
                     print(f"{Fore.YELLOW}⚠️ No se reconoció texto (audio vacío, silencio o ininteligible){Style.RESET_ALL}")
-
-                if not user_text:
-                    if conversation_active:
-                        idle_silence_count += 1
-                        if idle_silence_count == 1:
-                            reprompt = "No te escuchooo"
-                            interrupted = speak_interruptible(reprompt, tts, recorder, stt)
-                            if interrupted:
-                                next_user_text = interrupted
-                            continue
-                        elif idle_silence_count >= 2:
-                            standby_msg = "Estaré aquí lista. Cuando quieras continuar, solo llámame diciendo Elena."
-                            interrupted = speak_interruptible(standby_msg, tts, recorder, stt)
-                            conversation_active = False
-                            idle_silence_count = 0
-                            if interrupted:
-                                next_user_text = interrupted
-                            continue
+                    time.sleep(0.2)
                     continue
 
-                # Si estamos en espera (no en conversación activa), exigir wake word
-                if not conversation_active:
-                    if not has_wake_word(user_text) and not is_exit_command(user_text):
-                        print(f"{Fore.YELLOW}ℹ️ [Ignorado: \"{user_text}\" - Di 'Elena' para activarme]{Style.RESET_ALL}")
-                        continue
-                    else:
-                        conversation_active = True
+                # Limpiar si el niño empezó o terminó diciendo 'Elena' de forma opcional
+                user_text = extract_message_after_wake_word(user_text)
+                if not user_text:
+                    continue
 
-            # Resetear contador de silencios porque el niño habló
-            idle_silence_count = 0
             print(f"{Fore.CYAN}👦 Niño: {user_text}{Style.RESET_ALL}")
 
             # Manejo directo si el niño pide salir / cerrar la sesión
@@ -329,10 +292,9 @@ def main():
 
             # Manejo directo si el niño pide pausa en su turno
             if is_stop_command(user_text):
-                conversation_active = False
-                idle_silence_count = 0
-                msg_pausa = "¡Entendido! Hacemos una pausa. Cuando me necesites, solo llámame diciendo Elena."
+                msg_pausa = "¡Entendido! Hacemos una pausa. Cuando quieras continuar, aquí estaré."
                 speak_interruptible(msg_pausa, tts, recorder, stt)
+                time.sleep(1.0)
                 continue
 
             conversation_active = True

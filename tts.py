@@ -48,6 +48,18 @@ class TextToSpeech:
                 timeout=15
             )
             
+            # Si el reference_id no existe o expiró, reintentar sin él usando la voz por defecto
+            if response.status_code == 400 and self.reference_id and "reference not found" in response.text.lower():
+                print(f"⚠️ Reference ID '{self.reference_id}' no encontrado en Fish Audio. Cambiando a voz estándar...")
+                self.reference_id = None
+                payload.pop("reference_id", None)
+                response = self.session.post(
+                    self.endpoint,
+                    headers=self.headers,
+                    json=payload,
+                    timeout=15
+                )
+
             if response.status_code != 200:
                 print(f"⚠️ Error de Fish Audio TTS ({response.status_code}): {response.text}")
                 return None

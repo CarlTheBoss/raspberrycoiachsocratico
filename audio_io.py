@@ -93,12 +93,26 @@ class AudioRecorder:
         self.channels = channels
         self.silence_duration = silence_duration
         self.energy_threshold = energy_threshold
-        self.ambient_noise_level = 0.005
+        self.ambient_noise_level = min(0.015, max(0.003, self.energy_threshold * 0.8))
+
+    def calibrate_ambient_noise(self, duration: float = 0.3):
+        """Mide brevemente el ruido ambiente al inicio para calibrar el umbral dinámico"""
+        try:
+            samples = int(self.sample_rate * duration)
+            rec = sd.rec(samples, samplerate=self.sample_rate, channels=self.channels, dtype="float32")
+            sd.wait()
+            rms = float(np.sqrt(np.mean(rec.flatten()**2)))
+            if rms > 0:
+                self.ambient_noise_level = min(0.035, max(0.002, rms))
+                print(f" 🎚️ [Ruido ambiente calibrado: {self.ambient_noise_level:.4f} | Umbral inicio: {max(self.energy_threshold, self.ambient_noise_level * 1.55):.4f}]")
+        except Exception:
+            pass
 
     def _update_ambient_noise(self, energy: float):
         if energy > 0:
-            # Limitar el nivel de ruido base para que nunca bloquee susurros o voz baja
-            self.ambient_noise_level = min(0.004, 0.95 * self.ambient_noise_level + 0.05 * energy)
+            # Adaptación suave al ruido ambiente real (ventiladores, USB, fondo)
+            # Permite adaptarse a micrófonos ruidosos en Raspberry Pi sin bloquear voz real
+            self.ambient_noise_level = min(0.035, 0.95 * self.ambient_noise_level + 0.05 * energy)
 
     def play_listening_beep(self, frequency: float = 680.0, duration: float = 0.09):
         """Genera y reproduce un tono 'pup' suave para indicar que el robot está listo para escuchar"""
@@ -110,6 +124,7 @@ class AudioRecorder:
             tone = np.sin(2 * np.pi * frequency * t) * envelope * 0.18
             sd.play(tone.astype(np.float32), self.sample_rate)
             sd.wait()
+            time.sleep(0.05)  # Breve margen para que el parlante se apague por completo
         except Exception:
             pass
 
@@ -127,25 +142,23 @@ class AudioRecorder:
             chime = np.concatenate([tone1, pause, tone2]).astype(np.float32)
             sd.play(chime, self.sample_rate)
             sd.wait()
+            time.sleep(0.05)
         except Exception:
             pass
 
     def is_speech(self, chunk: np.ndarray, is_already_speaking: bool = False) -> bool:
         """
-        Detección de voz por histéresis ultrasensible a susurros y voz baja:
-        - Detecta el inicio de voz con energía baja (0.0035).
-        - Si ya está hablando, mantiene la escucha activa con umbral mínimo (0.002) para capturar
-          susurros continuos, titubeos ('ammm', 'emmm') y pausas vocales.
+        Detección de voz con histéresis y umbral adaptativo al ruido ambiente:
+        - Si ya está hablando, umbral de sostenimiento más bajo para permitir pausas y susurros.
+        - Si está en silencio, umbral adaptado al ruido medido para evitar disparos por estática de USB.
         """
         energy = float(np.sqrt(np.mean(chunk**2)))
 
         if is_already_speaking:
-            # Umbral de sostenimiento: debe ser superior al ruido ambiente para detectar el silencio real
-            hold_threshold = max(self.ambient_noise_level * 1.3, self.energy_threshold * 0.8)
+            hold_threshold = max(self.ambient_noise_level * 1.25, self.energy_threshold * 0.75)
             return energy > hold_threshold
         else:
-            # Umbral de inicio para activar el turno con voz normal
-            start_threshold = max(self.energy_threshold, self.ambient_noise_level * 1.4)
+            start_threshold = max(self.energy_threshold, self.ambient_noise_level * 1.55)
             if energy > start_threshold:
                 return True
             else:
@@ -160,8 +173,9 @@ class AudioRecorder:
     ) -> np.ndarray:
         """
         Escucha al niño durante su turno:
-        - Si hay botón arcade: graba mientras esté presionado y corta al instante al soltarlo.
-        - Si es manos libres: permite pausas naturales de pensamiento hasta detectar silencio.
+        - Si hay botón arcade: graba mientras esté presionado y corta al soltarlo.
+        - Si es manos libres: requiere confirmación consecutiva de voz (anti-ruido ALSA/clics)
+          y mide el silencio posterior para enviar únicamente intervenciones reales.
         """
         chunk_duration = 0.05  # 50ms
         chunk_samples = int(self.sample_rate * chunk_duration)
@@ -172,10 +186,20 @@ class AudioRecorder:
         silence_start_time = None
         start_time = time.time()
         record_start = start_time
-        # Período de gracia inicial (0.25s) para evitar que la misma pulsación o key-repeat de la tecla inicial corte la grabación
         grace_period = 0.25
 
+        consecutive_speech = 0
+        min_consecutive_to_start = 3   # Requiere al menos ~150ms continuos de voz para confirmar inicio
+        speech_chunks_count = 0        # Cuenta de chunks de voz real para filtrar ruidos fugaces
+
         with sd.InputStream(samplerate=self.sample_rate, channels=self.channels, dtype="float32") as stream:
+            # Descartar primeros 100ms de calentamiento del stream para purgar 'pops' de inicio de ALSA/USB
+            try:
+                for _ in range(2):
+                    stream.read(chunk_samples)
+            except Exception:
+                pass
+
             while True:
                 if (time.time() - start_time) > max_duration:
                     break
@@ -195,24 +219,36 @@ class AudioRecorder:
                     # En modo botón: se graba continuo sin límite de silencio
                     is_speaking = True
                     frames.append(audio_chunk)
-                elif self.is_speech(audio_chunk, is_already_speaking=is_speaking):
-                    if not is_speaking:
-                        print(" 🎙️ [Voz detectada... te escucho]")
-                        is_speaking = True
-                        frames.extend(pre_buffer)
-                    frames.append(audio_chunk)
-                    silence_start_time = None
+                elif not is_speaking:
+                    if self.is_speech(audio_chunk, is_already_speaking=False):
+                        consecutive_speech += 1
+                        pre_buffer.append(audio_chunk)
+                        if consecutive_speech >= min_consecutive_to_start:
+                            print(" 🎙️ [Voz detectada... te escucho]")
+                            is_speaking = True
+                            frames.extend(pre_buffer)
+                            speech_chunks_count += consecutive_speech
+                            silence_start_time = None
+                    else:
+                        consecutive_speech = 0
+                        pre_buffer.append(audio_chunk)
                 else:
-                    if is_speaking:
+                    if self.is_speech(audio_chunk, is_already_speaking=True):
+                        speech_chunks_count += 1
+                        frames.append(audio_chunk)
+                        silence_start_time = None
+                    else:
                         frames.append(audio_chunk)
                         if silence_start_time is None:
                             silence_start_time = time.time()
                         elif (time.time() - silence_start_time) >= self.silence_duration:
                             break
-                    else:
-                        pre_buffer.append(audio_chunk)
 
         if not frames:
+            return np.array([], dtype=np.float32)
+
+        # En manos libres: si la voz detectada fue menor a ~200ms totales (ej. un golpe o chasquido), descartar
+        if not button_is_released_func and speech_chunks_count < 4:
             return np.array([], dtype=np.float32)
 
         full_audio = np.concatenate(frames)

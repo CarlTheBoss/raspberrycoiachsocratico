@@ -36,7 +36,7 @@ CURRICULUM_DATA = [
         "page_number": 4,
         "challenge_title": "Reto 1: Organizamos nuestros objetos",
         "topic": "Atributos geométricos: Forma vs. Color",
-        "visual_context": "Lucía y Paco tienen cajas de colección. Lucía dice que guardó bloques lógicos de la misma forma. Paco conjetura: 'Me parece que pueden ser figuras de color amarillo'. Al abrir la caja se ven 7 figuras y TODAS son círculos: 4 rojos (1 grande, 1 mediano, 2 pequeños), 2 amarillos (1 grande, 1 pequeño) y 1 azul (pequeño). No hay triángulos ni cuadrados.",
+        "visual_context": "Lucía y Paco tienen cajas de colección. Lucía dice que guardó bloques lógicos de la misma forma. Paco conjetura: 'Me parece que pueden ser figuras de color amarillo'. Al abrir la caja se ven 7 figuras y TODAS son círculos: 4 rojos (2 grande, 2 pequeños), 2 amarillos (1 grande, 1 pequeño) y 1 azul (pequeño). No hay triángulos ni cuadrados.",
         "pedagogical_goal": "Distinguir claramente el atributo de 'forma' frente al atributo de 'color'.",
         "exercises": [
             {
@@ -71,7 +71,7 @@ CURRICULUM_DATA = [
         "page_number": 5,
         "challenge_title": "Reto 1: Organizamos nuestros objetos",
         "topic": "Observación, atributos y agrupación por color",
-        "visual_context": "Las 7 figuras de Lucía se observan en un recuadro amarillo: 4 círculos rojos (1 grande, 1 mediano, 2 pequeños), 2 círculos amarillos (1 grande, 1 pequeño) y 1 círculo azul pequeño. Paco propone: 'Yo propongo que las agrupe por colores. ¿Cómo lo haría?'. Hay un recuadro para dibujar las agrupaciones.",
+        "visual_context": "Las 7 figuras de Lucía se observan en un recuadro amarillo: 4 círculos rojos (2 grande, 2 pequeños), 2 círculos amarillos (1 grande, 1 pequeño) y 1 círculo azul pequeño. Paco propone: 'Yo propongo que las agrupe por colores. ¿Cómo lo haría?'. Hay un recuadro para dibujar las agrupaciones.",
         "pedagogical_goal": "Clasificar colecciones de objetos por color e identificar variaciones de tamaño.",
         "exercises": [
             {
@@ -90,13 +90,13 @@ CURRICULUM_DATA = [
                 "exercise_order": 2,
                 "dimension_id": "DIM-02",
                 "question_text": "¿Todas son iguales de tamaño y colores?, ¿por qué?",
-                "expected_concept": "No, porque tienen tamaños diferentes (grandes, medianos y pequeños) y tres colores distintos (rojo, amarillo y azul).",
+                "expected_concept": "No, porque tienen tamaños diferentes (grandes y pequeños) y tres colores distintos (rojo, amarillo y azul).",
                 "socratic_hints": [
                     "Fíjate en los tamaños: ¿son todas del mismo porte o hay unas más grandes que otras?",
                     "¿Y qué colores distintos puedes ver en la mesa?"
                 ],
                 "keywords": "tamaño, colores, iguales, diferentes, por qué, rojo, amarillo, azul",
-                "solution_detail": "No son iguales: varían en tamaño (grande, mediano, pequeño) y en color (rojo, amarillo, azul)."
+                "solution_detail": "No son iguales: varían en tamaño (grande, pequeño) y en color (rojo, amarillo, azul)."
             },
             {
                 "exercise_order": 3,
@@ -116,7 +116,7 @@ CURRICULUM_DATA = [
         "page_number": 6,
         "challenge_title": "Reto 1: Organizamos nuestros objetos",
         "topic": "Inclusión de clases: El Todo frente a las Partes",
-        "visual_context": "Lucía junto a los 7 círculos y 2 bolsas vacías. Círculos: 4 rojos (1 grande, 1 mediano, 2 pequeños), 2 amarillos (1 grande, 1 pequeño) y 1 azul pequeño. En total hay 7 círculos. Preguntas sobre agrupar en 2 bolsas y comparar el total de círculos frente a subconjuntos.",
+        "visual_context": "Lucía junto a los 7 círculos y 2 bolsas vacías. Círculos: 4 rojos (2 grande, 2 pequeños), 2 amarillos (1 grande, 1 pequeño) y 1 azul pequeño. En total hay 7 círculos. Preguntas sobre agrupar en 2 bolsas y comparar el total de círculos frente a subconjuntos.",
         "pedagogical_goal": "Comprender la inclusión de clases de Piaget: el conjunto total de elementos siempre es cuantitativamente mayor que cualquier subconjunto propio.",
         "exercises": [
             {
@@ -148,7 +148,7 @@ CURRICULUM_DATA = [
                 "exercise_order": 3,
                 "dimension_id": "DIM-02",
                 "question_text": "Lucía ha decidido organizar sus figuras de círculos en dos bolsas. ¿Qué agrupaciones podría hacer con las figuras que seleccionó?",
-                "expected_concept": "Puede agrupar por tamaño (en una bolsa círculos grandes y en la otra círculos medianos y pequeños) o por combinación de colores (rojos en una bolsa y amarillos con azul en la otra).",
+                "expected_concept": "Puede agrupar por tamaño (en una bolsa círculos grandes y en la otra círculos pequeños) o por combinación de colores (rojos en una bolsa y amarillos con azul en la otra).",
                 "socratic_hints": [
                     "Si solo tienes dos bolsas, ¿qué característica podrías usar para dividirlas?",
                     "¿Podrías separar por tamaños o juntar dos colores en una bolsa?"
